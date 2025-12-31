@@ -1,140 +1,436 @@
 // ==UserScript==
+// @name         MessiahV2 - Exact Restore + Features FIX
+// @namespace    http://tampermonkey.net/
+// @version      4.0
+// @description  Compact UI, Preset Side-Menu, Fix Load Bug, and Delete Presets
+// @author       xtra?
+// @match        https://fxclient.github.io/FXclient/
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addValueChangeListener
 // @run-at       document-start
-// @name         Vkij V7 - GUI Fix
-// @description  Automation with Fixed GUI Syntax
-// @match        *://*/*
-// @grant        none
 // ==/UserScript==
 
-(() => {
-    const tickLength = 557.675225; // [cite: 1]
-    const keyPressAdvance = 200;   // [cite: 1]
-    let timers = []; // [cite: 1]
-    let isRunning = false; // [cite: 2]
+(async function () {
+  'use strict';
 
-    const openingPatternTicks = [
-        { cycle: 0, tick: 7.0, keys: "r", percent: 20.80078125 }, // [cite: 2]
-        { cycle: 0, tick: 9.1, keys: "t", percent: 17.87109375 }, // [cite: 2]
-        { cycle: 1, tick: 6.8, keys: "z", percent: 16.50390625 }, // [cite: 2]
-        { cycle: 1, tick: 8.2, keys: "u", percent: 38.18359375 }, // [cite: 3]
-        { cycle: 2, tick: 5.9, keys: "i", percent: 18.84765625 }, // [cite: 3]
-        { cycle: 2, tick: 7.3, keys: "o", percent: 19.3359375 },  // [cite: 3]
-        { cycle: 2, tick: 8.0, keys: ".", percent: 38.96484375 }, // [cite: 3]
-        { cycle: 2, tick: 9.4, keys: "ü", percent: 45.8984375 },  // [cite: 3]
-        { cycle: 3, tick: 6.4, keys: "+", percent: 0.09765625 }, // [cite: 4]
-        { cycle: 3, tick: 7.1, keys: "j", percent: 47.36328125 }, // [cite: 4]
-        { cycle: 3, tick: 8.5, keys: "k", percent: 36.328125 },   // [cite: 4]
-        { cycle: 3, tick: 9.2, keys: "l", percent: 89.0625 },     // [cite: 4]
-        { cycle: 4, tick: 6.2, keys: "ö", percent: 28.80859375 }, // [cite: 4]
-        { cycle: 4, tick: 7.6, keys: "ä", percent: 24.0234375 },  // [cite: 5]
-        { cycle: 4, tick: 8.3, keys: "#", percent: 32.03125 },   // [cite: 5]
-        { cycle: 4, tick: 9.0, keys: "y", percent: 72.4609375 },  // [cite: 5]
-    ];
+  const w = unsafeWindow;
 
-    const openingPattern = openingPatternTicks.map(o => ({
-        delay: o.cycle * 10 * tickLength + o.tick * tickLength, // [cite: 6]
-        keys: o.keys, // [cite: 6]
-        percent: o.percent // [cite: 6]
-    }));
+  // --- Persistence & Initialization ---
+  const settings = {
+      manualPercent: parseInt(localStorage.getItem('exynos_pct')) || 12,
+      useDynamic: localStorage.getItem('exynos_dyn') !== 'false',
+      attackDelay: parseInt(localStorage.getItem('exynos_delay')) || 1,
+      minLand: parseInt(localStorage.getItem('exynos_land')) || 1,
+      dyn_0s: parseInt(localStorage.getItem('exynos_d0')) || 17,
+      dyn_18s: parseInt(localStorage.getItem('exynos_d18')) || 12,
+      dyn_38s: parseInt(localStorage.getItem('exynos_d38')) || 8,
+      presets: JSON.parse(localStorage.getItem('exynos_presets')) || {}
+  };
 
-    // --- GUI Logic ---
-    function createGUI() {
-        const gui = document.createElement('div');
-        Object.assign(gui.style, {
-            position: 'fixed', top: '10px', right: '10px', zIndex: '10000',
-            background: '#111', color: '#0f0', padding: '10px', border: '2px solid #333',
-            fontFamily: 'monospace', borderRadius: '5px', width: '150px'
-        });
+  const WAVE_INTERVAL_MS = 5500;
+  let waveInterval = null;
+  let startTime = null;
+  const lastAttack = new Map();
 
-        gui.innerHTML = `
-            <div style="font-weight:bold; border-bottom:1px solid #333; margin-bottom:5px;">Vkij V7</div>
-            <div id="gui-status" style="color:red">STOPPED</div>
-            <div id="gui-body">
-                <button id="gui-start" style="width:100%; margin-top:5px;">START (T)</button>
-                <button id="gui-stop" style="width:100%; margin-top:5px;">STOP (P)</button>
-            </div>
-            <button id="gui-min" style="width:100%; margin-top:5px; font-size:9px;">MINIMIZE</button>
-        `;
-        document.body.appendChild(gui);
+  // --- UI Construction ---
+  const gui = document.createElement('div');
+  gui.id = 'exynos-gui';
+  gui.innerHTML = `
+    <div id="exynos-header">
+        <span></span>
+        <span style="flex-grow:1; text-align:center;">Project Exynos</span>
+        <span id="exynos-minimize">_</span>
+    </div>
+    <div id="exynos-body">
+         <div id="smart-attack">Smart Attack: OFF</div>
+         <div class="control-group" id="pct-group">
+             <div class="label-row"><span>Attack Amount</span><span id="val-pct">${settings.manualPercent}%</span></div>
+             <input type="range" id="slider-pct" class="custom-slider" min="1" max="30" value="${settings.manualPercent}">
+         </div>
+         <div id="btn-dynamic" class="${settings.useDynamic ? 'active' : ''}">Dynamic Percentage: ${settings.useDynamic ? 'ON' : 'OFF'}</div>
 
-        const statusEl = gui.querySelector('#gui-status');
-        const bodyEl = gui.querySelector('#gui-body');
+         <button id="btn-edit-dyn" style="width:100%; font-size:10px; background:rgba(255,255,255,0.1); color:#fff; border:1px solid #fff; cursor:pointer; padding:4px;">Edit Dynamic %</button>
 
-        gui.querySelector('#gui-start').onclick = startScript;
-        gui.querySelector('#gui-stop').onclick = stopScript;
-        gui.querySelector('#gui-min').onclick = () => {
-            bodyEl.style.display = bodyEl.style.display === 'none' ? 'block' : 'none';
-        };
+         <div class="control-group">
+             <div class="label-row"><span>Burst Delay</span><span id="val-int">${settings.attackDelay}ms</span></div>
+             <input type="range" id="slider-int" class="custom-slider" min="1" max="667" value="${settings.attackDelay}">
+         </div>
+         <div class="control-group">
+             <div class="label-row"><span>Min Target Land</span><span id="val-land">${settings.minLand}</span></div>
+             <input type="range" id="slider-land" class="custom-slider" min="1" max="2468" value="${settings.minLand}">
+         </div>
 
-        // UI Syncing
-        window.addEventListener("keydown", (e) => {
-            if (e.key.toLowerCase() === "t") { statusEl.innerText = "RUNNING"; statusEl.style.color = "lime"; }
-            if (e.key.toLowerCase() === "p") { statusEl.innerText = "STOPPED"; statusEl.style.color = "red"; }
-        });
+         <button id="btn-open-presets" style="width:100%; font-size:11px; background:rgba(255,255,255,0.1); color:#fff; border:1px solid #fff; cursor:pointer; padding:6px;">Manage Presets</button>
+
+         <button id="btn-reset" style="width:100%; background:#8b0000; color:#fff; border:1px solid #fff; cursor:pointer; font-size:11px; padding:4px;">RESET ALL</button>
+    </div>
+
+    <div id="dyn-editor" style="display:none; position:absolute; left:245px; top:0; width:180px; background:rgba(0,0,0,0.9); border:2px solid #fff; padding:10px;">
+        <div style="text-align:center; font-size:12px; margin-bottom:10px;">Dynamic Scaling %</div>
+        <div class="control-group">
+            <div class="label-row"><span>0s-18s</span><span id="val-0s">${settings.dyn_0s}%</span></div>
+            <input type="range" id="edit-0s" class="custom-slider" min="1" max="50" value="${settings.dyn_0s}">
+        </div>
+        <div class="control-group">
+            <div class="label-row"><span>18s-38s</span><span id="val-18s">${settings.dyn_18s}%</span></div>
+            <input type="range" id="edit-18s" class="custom-slider" min="1" max="50" value="${settings.dyn_18s}">
+        </div>
+        <div class="control-group">
+            <div class="label-row"><span>38s+</span><span id="val-38s">${settings.dyn_38s}%</span></div>
+            <input type="range" id="edit-38s" class="custom-slider" min="1" max="50" value="${settings.dyn_38s}">
+        </div>
+        <button id="close-dyn-editor" style="width:100%; margin-top:10px; cursor:pointer;">Done</button>
+    </div>
+
+    <div id="preset-modal" style="display:none; position:absolute; left:245px; top:0; width:180px; background:rgba(0,0,0,0.9); border:2px solid #fff; padding:10px; flex-direction: column; gap: 8px;">
+        <div style="text-align:center; font-size:12px; margin-bottom:5px;">Presets</div>
+        <div style="display:flex; gap:5px;">
+            <input type="text" id="preset-name" placeholder="Name..." style="flex-grow:1; background:#222; border:1px solid #fff; color:#fff; font-size:10px; padding:3px;">
+            <button id="btn-save-preset" style="font-size:10px; cursor:pointer; background:#006400; color:#fff; border:1px solid #fff;">Save</button>
+        </div>
+        <div id="preset-container" style="max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;"></div>
+        <button id="close-preset-modal" style="width:100%; margin-top:5px; cursor:pointer;">Done</button>
+    </div>
+  `;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    #exynos-gui { position: fixed; left: 40px; top: 40px; width: 240px; background: rgba(0, 0, 0, 0.85); border: 2px solid #fff; font-family: sans-serif; z-index: 2147483647; color: #fff; user-select: none; }
+    #exynos-header { background: rgba(0, 100, 0, 0.9); padding: 10px; font-weight: bold; cursor: move; border-bottom: 2px solid #fff; display: flex; align-items: center; justify-content: space-between; }
+    #exynos-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+    #exynos-body.minimized { display: none; }
+    #smart-attack { background: rgba(0, 0, 0, 0.85); border: 2px solid #fff; padding: 8px; cursor: pointer; text-align: center; font-weight: bold; font-size: 13px; }
+    #smart-attack.active { background: rgba(0, 128, 0, 0.8); }
+    #btn-dynamic { background: rgba(0, 0, 0, 0.5); border: 1px solid #fff; padding: 6px; text-align: center; cursor: pointer; font-size: 11px; }
+    #btn-dynamic.active { background: rgba(0, 128, 0, 0.8); border-color: #fff; }
+    .control-group { display: flex; flex-direction: column; gap: 5px; transition: opacity 0.3s; }
+    .control-group.disabled { opacity: 0.3; pointer-events: none; }
+    .label-row { display: flex; justify-content: space-between; font-size: 11px; color: #ccc; }
+    #exynos-minimize { cursor: pointer; padding: 0 5px; line-height: 10px; }
+    .custom-slider { -webkit-appearance: none; width: 100%; height: 4px; background: #333; outline: none; margin: 8px 0; }
+    .custom-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 18px; background: #fff; cursor: pointer; border: 1px solid #000; }
+    .preset-item { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px; border: 1px solid #444; font-size: 11px; }
+    .btn-del { color: #ff4d4d; cursor: pointer; font-weight: bold; padding-left: 10px; }
+    .btn-load { color: #fff; cursor: pointer; flex-grow: 1; }
+    .btn-load:hover { color: #4dff4d; }
+  `;
+  document.head.appendChild(style);
+  document.documentElement.appendChild(gui);
+
+  const save = () => {
+      localStorage.setItem('exynos_pct', settings.manualPercent);
+      localStorage.setItem('exynos_dyn', settings.useDynamic);
+      localStorage.setItem('exynos_delay', settings.attackDelay);
+      localStorage.setItem('exynos_land', settings.minLand);
+      localStorage.setItem('exynos_d0', settings.dyn_0s);
+      localStorage.setItem('exynos_d18', settings.dyn_18s);
+      localStorage.setItem('exynos_d38', settings.dyn_38s);
+      localStorage.setItem('exynos_presets', JSON.stringify(settings.presets));
+  };
+
+  const applySettingsToUI = () => {
+      document.getElementById('slider-pct').value = settings.manualPercent;
+      document.getElementById('val-pct').innerText = settings.manualPercent + '%';
+      const dynBtn = document.getElementById('btn-dynamic');
+      dynBtn.className = settings.useDynamic ? 'active' : '';
+      dynBtn.innerText = `Dynamic Percentage: ${settings.useDynamic ? 'ON' : 'OFF'}`;
+      document.getElementById('slider-int').value = settings.attackDelay;
+      document.getElementById('val-int').innerText = settings.attackDelay + 'ms';
+      document.getElementById('slider-land').value = settings.minLand;
+      document.getElementById('val-land').innerText = settings.minLand;
+      ['0s', '18s', '38s'].forEach(id => {
+          document.getElementById('edit-'+id).value = settings['dyn_'+id];
+          document.getElementById('val-'+id).innerText = settings['dyn_'+id] + '%';
+      });
+      updateGUI();
+  };
+
+  const updatePresetsUI = () => {
+      const container = document.getElementById('preset-container');
+      container.innerHTML = '';
+      for (let name in settings.presets) {
+          let div = document.createElement('div');
+          div.className = 'preset-item';
+          div.innerHTML = `<span class="btn-load">${name}</span><span class="btn-del" data-name="${name}">✖</span>`;
+          div.querySelector('.btn-load').onclick = () => {
+              Object.assign(settings, JSON.parse(JSON.stringify(settings.presets[name])));
+              applySettingsToUI();
+              save();
+          };
+          div.querySelector('.btn-del').onclick = (e) => {
+              delete settings.presets[e.target.getAttribute('data-name')];
+              save(); updatePresetsUI();
+          };
+          container.appendChild(div);
+      }
+  };
+
+  if (!w._trackedSockets) {
+    w._trackedSockets = [];
+    const NativeWS = w.WebSocket;
+    w.WebSocket = function (u, p) {
+      const ws = p ? new NativeWS(u, p) : new NativeWS(u);
+      w._trackedSockets.push(ws);
+      ws.addEventListener('close', () => { const i = w._trackedSockets.indexOf(ws); if (i > -1) w._trackedSockets.splice(i, 1); });
+      return ws;
+    };
+  }
+
+  class BitWriter {
+    constructor(b) { this.buffer = new Uint8Array(Math.ceil(b / 8)); this.bit = 0; }
+    write(n, v) {
+      for (let i = n - 1; i >= 0; i--) {
+        const byte = Math.floor(this.bit / 8);
+        const bitInByte = 7 - (this.bit % 8);
+        if ((v >> i) & 1) this.buffer[byte] |= 1 << bitInByte;
+        this.bit++;
+      }
     }
+    bytes() { return this.buffer; }
+  }
 
-    // --- Original Logic ---
-    function dispatchKey(target, type, key) {
-        const event = new KeyboardEvent(type, { key, code: `Key${key.toUpperCase()}`, bubbles: true, cancelable: true }); // [cite: 7]
-        target.dispatchEvent(event); // [cite: 8]
+  const percentToValue = p => Math.round(Math.max(0, Math.min(100, p)) * 1023 / 100);
+  const makePacket = (p, t) => {
+    const bw = new BitWriter(32);
+    bw.write(1, 1); bw.write(4, 1);
+    bw.write(10, percentToValue(p));
+    bw.write(10, t); bw.write(7, 0);
+    return bw.bytes();
+  };
+
+  function findBorderingIds(myCells, allBorders, offsets, totalPlayers, myId) {
+    const cellSet = new Set(myCells), neighbors = new Set();
+    for (let i = 0; i < totalPlayers; i++) {
+      if (i === myId || !allBorders[i]) continue;
+      for (let c of allBorders[i]) {
+        for (let offset of offsets) { if (cellSet.has(c - offset)) { neighbors.add(i); break; } }
+      }
     }
+    return neighbors;
+  }
 
-    function simulateKeysSequence(keys) {
-        const target = document.activeElement || document.body; // [cite: 8, 9]
-        let i = 0;
-        function next() {
-            if (i < keys.length) {
-                dispatchKey(target, "keydown", keys[i]); // [cite: 10]
-                dispatchKey(target, "keyup", keys[i]); // [cite: 10]
-                i++;
-                setTimeout(next, 0); // [cite: 10]
-            }
+  function getDynamicAttackPercent() {
+    if (startTime === null) return settings.dyn_0s;
+    const elapsed = (Date.now() - startTime) / 1000;
+    if (elapsed < 18) return settings.dyn_0s;
+    if (elapsed < 38) return settings.dyn_18s;
+    return settings.dyn_38s;
+  }
+
+  async function attackCheck() {
+    const ag = w.ag;
+    const ac = w.ac;
+    const troopData = ag.h2;
+    const landData = ag.go;
+    const borders = ag.gg;
+    const offsets = ac.f3;
+
+    if (!troopData || !landData || !borders || !offsets) return;
+
+    const name = w.localStorage.getItem('d122');
+    if (!name) return;
+
+    const myId = w?.aD?.data?.playerNamesData?.indexOf(name);
+    if (myId == null || myId === -1 || !borders[myId]) return;
+
+    const now = Date.now();
+    const borderSet = findBorderingIds(borders[myId], borders, offsets, borders.length, myId);
+    const attackPercent = settings.useDynamic ? getDynamicAttackPercent() : settings.manualPercent;
+    const attackedIds = new Set();
+
+    // BATCH 1
+    let batch1Targets = [];
+    for (const enemyId of borderSet) {
+      const troops = troopData[enemyId];
+      const land = landData[enemyId];
+      if (troops != null && land != null && land >= settings.minLand) {
+        if (troops / land < 0.6) {
+          batch1Targets.push({ enemyId, land });
         }
-        next();
+      }
+    }
+    batch1Targets.sort((a, b) => b.land - a.land);
+
+    for (const target of batch1Targets) {
+      if (!waveInterval) return;
+      const packet = makePacket(attackPercent, target.enemyId);
+      for (let ws of w._trackedSockets) {
+        if (ws.readyState === ws.OPEN) {
+          try {
+            ws.send(packet);
+            lastAttack.set(target.enemyId, now);
+            attackedIds.add(target.enemyId);
+          } catch {}
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, settings.attackDelay));
     }
 
-    function simulateSend(percent) {
-        const event = new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }); // [cite: 11]
-        document.dispatchEvent(event); // [cite: 12]
-        console.log(`[SEND] ${percent}%`); // [cite: 12]
+    if (!waveInterval) return;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // BATCH 2
+    let batch2Targets = [];
+    for (const enemyId of borderSet) {
+      if (attackedIds.has(enemyId)) continue;
+      const troops = troopData[enemyId];
+      const land = landData[enemyId];
+      if (troops != null && land != null && land >= settings.minLand) {
+        if (troops / land < 0.6) {
+          batch2Targets.push({ enemyId, land });
+        }
+      }
+    }
+    batch2Targets.sort((a, b) => b.land - a.land);
+
+    for (const target of batch2Targets) {
+      if (!waveInterval) return;
+      const packet = makePacket(attackPercent, target.enemyId);
+      for (let ws of w._trackedSockets) {
+        if (ws.readyState === ws.OPEN) {
+          try {
+            ws.send(packet);
+            lastAttack.set(target.enemyId, now);
+            attackedIds.add(target.enemyId);
+          } catch {}
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, settings.attackDelay));
     }
 
-    function runStep(index) {
-        if (index >= openingPattern.length || !isRunning) return; // [cite: 12]
-        const { delay, keys, percent } = openingPattern[index]; // [cite: 13]
+    const elapsed = (now - startTime) / 1000;
+    if (elapsed >= 18) {
+      if (!waveInterval) return;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      // BATCH 3
+      let batch3Targets = [];
+      for (const enemyId of borderSet) {
+        if (attackedIds.has(enemyId)) continue;
+        const troops = troopData[enemyId];
+        const land = landData[enemyId];
+        if (troops != null && land != null && land >= settings.minLand) {
+          if (troops / land < 0.6) {
+            batch3Targets.push({ enemyId, land });
+          }
+        }
+      }
+      batch3Targets.sort((a, b) => b.land - a.land);
 
-        timers.push(setTimeout(() => {
-            if (!isRunning) return;
-            if (keys.length > 0) simulateKeysSequence(keys); // [cite: 13]
-        }, delay - keyPressAdvance)); // [cite: 13]
-
-        timers.push(setTimeout(() => {
-            if (!isRunning) return;
-            simulateSend(percent); // [cite: 14]
-        }, delay)); // [cite: 14]
+      for (const target of batch3Targets) {
+        if (!waveInterval) return;
+        const packet = makePacket(attackPercent, target.enemyId);
+        for (let ws of w._trackedSockets) {
+          if (ws.readyState === ws.OPEN) {
+            try {
+              ws.send(packet);
+              lastAttack.set(target.enemyId, now);
+              attackedIds.add(target.enemyId);
+            } catch {}
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, settings.attackDelay));
+      }
     }
+  }
 
-    function startScript() {
-        if (isRunning) return; // [cite: 15]
-        isRunning = true; // [cite: 15]
-        timers = []; // [cite: 16]
-        for (let i = 0; i < openingPattern.length; i++) runStep(i); // [cite: 16]
-    }
+  const updateGUI = () => {
+    document.getElementById('pct-group').classList.toggle('disabled', settings.useDynamic);
+  };
 
-    function stopScript() {
-        timers.forEach(t => clearTimeout(t)); // [cite: 17]
-        timers = []; // [cite: 17]
-        isRunning = false; // [cite: 18]
-    }
+  document.getElementById('slider-pct').oninput = function() {
+      settings.manualPercent = parseInt(this.value);
+      document.getElementById('val-pct').innerText = this.value + '%';
+      save();
+  };
 
-    window.addEventListener("keydown", e => {
-        const key = e.key.toLowerCase(); // [cite: 18]
-        if (key === "t") startScript(); // [cite: 18]
-        if (key === "p") stopScript(); // [cite: 18]
-    });
+  document.getElementById('btn-dynamic').onclick = function() {
+      settings.useDynamic = !settings.useDynamic;
+      this.classList.toggle('active');
+      this.innerText = `Dynamic Percentage: ${settings.useDynamic ? 'ON' : 'OFF'}`;
+      updateGUI();
+      save();
+  };
 
-    if (document.readyState === "complete") createGUI();
-    else window.addEventListener("load", createGUI);
+  document.getElementById('btn-edit-dyn').onclick = () => {
+      document.getElementById('preset-modal').style.display = 'none';
+      document.getElementById('dyn-editor').style.display = 'block';
+  };
+  document.getElementById('close-dyn-editor').onclick = () => { document.getElementById('dyn-editor').style.display = 'none'; save(); };
 
-    console.log("[SCRIPT] Ready."); // [cite: 19]
+  ['0s', '18s', '38s'].forEach(id => {
+      document.getElementById('edit-'+id).oninput = function() {
+          settings['dyn_'+id] = parseInt(this.value);
+          document.getElementById('val-'+id).innerText = this.value + '%';
+      };
+  });
+
+  document.getElementById('btn-open-presets').onclick = () => {
+      document.getElementById('dyn-editor').style.display = 'none';
+      document.getElementById('preset-modal').style.display = 'flex';
+  };
+  document.getElementById('close-preset-modal').onclick = () => document.getElementById('preset-modal').style.display = 'none';
+
+  document.getElementById('btn-save-preset').onclick = () => {
+      const name = document.getElementById('preset-name').value.trim();
+      if (!name) return;
+      const snapshot = JSON.parse(JSON.stringify(settings));
+      delete snapshot.presets; 
+      settings.presets[name] = snapshot;
+      save(); 
+      updatePresetsUI();
+      document.getElementById('preset-name').value = '';
+  };
+
+  document.getElementById('btn-reset').onclick = () => {
+      localStorage.clear();
+      location.reload();
+  };
+
+  document.getElementById('slider-int').oninput = function() {
+      settings.attackDelay = parseInt(this.value);
+      document.getElementById('val-int').innerText = this.value + 'ms';
+      save();
+  };
+
+  document.getElementById('slider-land').oninput = function() {
+      settings.minLand = parseInt(this.value);
+      document.getElementById('val-land').innerText = this.value;
+      save();
+  };
+
+const toggleAttack = (forceOff = false) => {
+      const btn = document.getElementById('smart-attack');
+      if (waveInterval || forceOff) {
+          clearInterval(waveInterval);
+          waveInterval = null;
+          btn.innerText = "Smart Attack: OFF";
+          btn.classList.remove('active');
+      } else {
+          startTime = Date.now();
+          // Assign interval ID first so attackCheck sees it is active
+          waveInterval = setInterval(attackCheck, WAVE_INTERVAL_MS);
+          attackCheck(); 
+          btn.innerText = "Smart Attack: ON";
+          btn.classList.add('active');
+      }
+  };
+  };
+
+  document.getElementById('smart-attack').onclick = () => toggleAttack();
+  document.getElementById('exynos-minimize').onclick = () => document.getElementById('exynos-body').classList.toggle('minimized');
+
+  let isDragging = false, dragOffset = [0, 0];
+  const header = document.getElementById('exynos-header');
+  header.onmousedown = (e) => { isDragging = true; dragOffset = [gui.offsetLeft - e.clientX, gui.offsetTop - e.clientY]; };
+  document.onmousemove = (e) => { if (isDragging) { gui.style.left = (e.clientX + dragOffset[0]) + 'px'; gui.style.top = (e.clientY + dragOffset[1]) + 'px'; } };
+  document.onmouseup = () => isDragging = false;
+
+  window.addEventListener('keydown', e => {
+      if (e.key.toLowerCase() === 'q' && !waveInterval) toggleAttack();
+      if (e.key.toLowerCase() === 'e' && waveInterval) toggleAttack(true);
+  });
+
+  updateGUI();
+  updatePresetsUI();
 })();

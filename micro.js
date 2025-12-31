@@ -415,7 +415,6 @@ const toggleAttack = (forceOff = false) => {
           btn.classList.add('active');
       }
   };
-  };
 
   document.getElementById('smart-attack').onclick = () => toggleAttack();
   document.getElementById('exynos-minimize').onclick = () => document.getElementById('exynos-body').classList.toggle('minimized');
